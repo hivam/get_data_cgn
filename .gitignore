@@ -15,3 +15,5 @@ temp/
 testrun/*
 .~lock*
 *.pkl
+data/cgn_data.csv
+data/processed_entities.csv

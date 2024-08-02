@@ -1,9 +1,8 @@
 from robocorp.tasks import task
 from robocorp import browser
-
 from RPA.FileSystem import FileSystem
 from RPA.Tables import Tables
-
+from bs4 import BeautifulSoup
 import pandas as pd
 
 filesystem = FileSystem()
@@ -12,20 +11,18 @@ table = Tables()
 @task
 def get_data_cgn():
     """
-    Consultar reporte de información financera de Hospitales Públicos al sistema CHIP
+    Consultar reporte de información financiera de Hospitales Públicos al sistema CHIP
     """
     browser.configure(slowmo=200, headless=True)
-
     open_chip_website()
-
     cgn_data_consult()
 
 def open_chip_website():
     # Abrir formulario: "Consulta de información Financiera, Económica, Social y Ambiental"
     page = browser.page()
     page.goto("https://www.chip.gov.co", timeout=60000)
-    if page.query_selector('//*[@id="j_idt105:InformacionEnviada"]'):
-        page.click('//*[@id="j_idt105:InformacionEnviada"]', timeout=60000)
+    # if page.query_selector('//*[@id="j_idt105:InformacionEnviada"]'):
+    page.click('//*[@id="j_idt105:InformacionEnviada"]', timeout=60000)
 
 def fill_form(entidad, categoria, periodo, numero_identificacion):
     page = browser.page()
@@ -45,34 +42,30 @@ def process_table(entidad, categoria, periodo, numero_identificacion):
     page = browser.page()
     # Seleccionar resultados usando un selector más estable basado en clases y etiquetas
     table_selector = 'table.iceDatTbl'
-    header_selector = f'{table_selector} thead tr'
-    row_selector = f'{table_selector} tbody tr'    
     # Espera a que la tabla esté presente en el DOM
-    page.wait_for_selector(table_selector, state='attached', timeout=60000)    
+    page.wait_for_selector(table_selector, state='attached', timeout=60000)
     # Espera adicional para asegurar que el contenido esté completamente cargado
-    page.wait_for_timeout(5000)  # Espera 5 segundos adicionales    
-    # Selecciona todas las filas del encabezado de la tabla
-    header_rows = page.query_selector_all(header_selector)
-    
+    page.wait_for_timeout(5000)  # Espera 5 segundos adicionales
+    # Captura el HTML de la tabla
+    table_html = page.query_selector(table_selector).inner_html()
+
+    # Analiza el HTML de la tabla con BeautifulSoup
+    soup = BeautifulSoup(table_html, 'html.parser')
+    headers = [th.get_text(strip=True) for th in soup.select('thead th')]
+    rows = soup.select('tbody tr')
     table_data = []
 
-    # Extraer datos del encabezado
-    if header_rows:
-        cols = header_rows[0].query_selector_all('th')  # Cambia 'th' por 'td' si las celdas no están en <th>
-        headers = [col.inner_text() for col in cols]
-        headers.extend(['Entidad', 'Categoria', 'Periodo', 'NumeroIdentificacion'])  # Agregar columnas de los argumentos
-        table_data.append(headers)
-    # Selecciona todas las filas del cuerpo de la tabla
-    body_rows = page.query_selector_all(row_selector)
     # Extraer datos del cuerpo de la tabla
-    for row in body_rows:
-        cols = row.query_selector_all('td')
-        col_data = [col.inner_text() for col in cols]
+    for row in rows:
+        cols = row.select('td')
+        col_data = [col.get_text(strip=True) for col in cols]
         if any(col_data):  # Evita agregar filas completamente vacías
             col_data.extend([entidad, categoria, periodo, numero_identificacion])  # Agregar valores de los argumentos
-            table_data.append(col_data)    
+            table_data.append(col_data)
+    
+    headers.extend(['Entidad', 'Categoria', 'Periodo', 'NumeroIdentificacion'])  # Agregar columnas de los argumentos
     # Convertir los datos en un DataFrame de Pandas
-    new_data_df = pd.DataFrame(table_data[1:], columns=table_data[0])
+    new_data_df = pd.DataFrame(table_data, columns=headers)
     # Eliminar la primera columna vacía si existe
     if new_data_df.columns[0] == '':
         new_data_df = new_data_df.drop(new_data_df.columns[0], axis=1)
@@ -80,7 +73,7 @@ def process_table(entidad, categoria, periodo, numero_identificacion):
     cols_to_convert = ['SALDO INICIAL(Pesos)', 'MOVIMIENTO DEBITO(Pesos)', 'MOVIMIENTO CREDITO(Pesos)', 
                        'SALDO FINAL(Pesos)', 'SALDO FINAL CORRIENTE(Pesos)', 'SALDO FINAL NO CORRIENTE(Pesos)']
     for col in cols_to_convert:
-        new_data_df[col] = new_data_df[col].str.replace(',', '').astype(float).astype(int)    
+        new_data_df[col] = new_data_df[col].str.replace(',', '').astype(float).astype(int)
     # Verificar si el archivo ya existe
     file_path = "data/cgn_data.csv"
     if filesystem.does_file_exist(file_path):
@@ -99,9 +92,9 @@ def process_table(entidad, categoria, periodo, numero_identificacion):
     except Exception as e:
         print(f"Error al hacer clic en 'Volver': {e}")
         page.close()
-        browser.configure(slowmo=200, headless=True)      
+        browser.configure(slowmo=200, headless=True)
         open_chip_website()
-        page.wait_for_timeout(5000)  # Espera 5 segundos adicionales    
+        page.wait_for_timeout(5000)  # Espera 5 segundos adicionales
 
 def cgn_data_consult():
     page = browser.page()
@@ -140,7 +133,6 @@ def cgn_data_consult():
     for entidad, numero_identificacion in entidades_pendientes:
         try:
             fill_form(entidad, categoria, periodo, numero_identificacion)
-            # table_html = capture_table()
             process_table(entidad, categoria, periodo, numero_identificacion)
             processed_entities.append(entidad)
             pd.DataFrame({"entidad": processed_entities}).to_csv(processed_entities_file, index=False)
