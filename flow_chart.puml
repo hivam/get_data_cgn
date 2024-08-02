@@ -1,0 +1,90 @@
+@startuml
+actor Usuario
+participant "Script get_data_cgn" as Script
+participant "Browser" as Browser
+participant "Page" as Page
+participant "Filesystem" as Filesystem
+participant "Pandas" as Pandas
+participant "BeautifulSoup" as BeautifulSoup
+
+Usuario -> Script: Ejecutar get_data_cgn()
+Script -> Browser: configure(slowmo=200, headless=True)
+Script -> Script: open_chip_website()
+
+Script -> Page: goto("https://www.chip.gov.co", timeout=60000)
+Page -> Page: click('//*[@id="j_idt105:InformacionEnviada"]', timeout=60000)
+
+Script -> Script: cgn_data_consult()
+
+Script -> Filesystem: does_file_exist("data/ips_database.csv")
+Filesystem -> Script: Devolver True/False
+
+Script -> Pandas: read_csv("data/ips_database.csv", dtype=dtype_dict_public_entities, low_memory=False)
+Pandas -> Script: DataFrame con datos
+
+Script -> Script: Filtrar DataFrame
+Script -> Script: Crear lista de entidades
+
+Script -> Filesystem: does_file_exist("data/processed_entities.csv")
+Filesystem -> Script: Devolver True/False
+
+Script -> Pandas: read_csv("data/processed_entities.csv")
+Pandas -> Script: DataFrame con entidades procesadas
+
+Script -> Script: Filtrar entidades ya procesadas
+
+loop Por cada entidad pendiente
+    Script -> Script: fill_form(entidad, categoria, periodo, numero_identificacion)
+    
+    Script -> Page: fill('//*[@id="frm1:SelBoxEntidadCiudadano_input"]', entidad)
+    Script -> Page: press('//*[@id="frm1:SelBoxEntidadCiudadano_input"]', 'Enter')
+    Script -> Page: select_option('//*[@id="frm1:SelBoxCategoria"]', categoria)
+    Script -> Page: select_option('//*[@id="frm1:SelBoxPeriodo"]', periodo)
+    Script -> Page: select_option('//*[@id="frm1:SelBoxForma"]', 'CGN2015_001_SALDOS_Y_MOVIMIENTOS_CONVERGENCIA')
+    Script -> Page: click('//*[@id="frm1:BtnConsular"]')
+    Script -> Page: wait_for_selector('//*[@id="frm1:SelBoxNivel"]', state='visible', timeout=60000)
+    Script -> Page: select_option('//*[@id="frm1:SelBoxNivel"]', '5')
+    
+    Script -> Script: process_table(entidad, categoria, periodo, numero_identificacion)
+    
+    Script -> Page: wait_for_selector('table.iceDatTbl', state='attached', timeout=60000)
+    Script -> Page: wait_for_timeout(5000)
+    Script -> Page: query_selector('table.iceDatTbl').inner_html()
+    
+    Script -> BeautifulSoup: Analizar HTML de la tabla
+    BeautifulSoup -> Script: Objeto soup
+    
+    Script -> Script: Extraer datos de la tabla
+    Script -> Pandas: Crear DataFrame con los datos
+    
+    Script -> Filesystem: does_file_exist("data/cgn_data.csv")
+    Filesystem -> Script: Devolver True/False
+    
+    alt Archivo existe
+        Script -> Pandas: read_csv("data/cgn_data.csv")
+        Pandas -> Script: DataFrame con datos existentes
+        Script -> Pandas: Concatenar DataFrames
+    else
+        Script -> Script: Usar nuevo DataFrame
+    end
+    
+    Script -> Pandas: to_csv("data/cgn_data.csv", index=False)
+    
+    Script -> Page: click("text=Volver", timeout=60000)
+    alt Error al hacer clic en 'Volver'
+        Script -> Page: close()
+        Script -> Browser: configure(slowmo=200, headless=True)
+        Script -> Script: open_chip_website()
+        Script -> Page: wait_for_timeout(5000)
+    end
+    
+    Script -> Script: Registrar entidad procesada
+    Script -> Pandas: to_csv("data/processed_entities.csv", index=False)
+    
+    alt Error al procesar la entidad
+        Script -> Page: reload()
+        Script -> Page: wait_for_timeout(5000)
+    end
+end
+@enduml
+

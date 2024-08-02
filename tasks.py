@@ -1,3 +1,15 @@
+# coding: utf-8
+##############################################################################
+#
+# Author: Hector Ivan Valencia Muñoz
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/> LGPLv3.
+#
+# View UML Secuence Diagram: Copy code of flow_chart.puml file in 
+# https://www.planttext.com/
+#
+##############################################################################
 from robocorp.tasks import task
 from robocorp import browser
 from RPA.FileSystem import FileSystem
